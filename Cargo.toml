@@ -1,0 +1,16 @@
+[package]
+name = "clone"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+minimp3 = { git = "https://github.com/Kither12/minimp3-rs" }
+rustfft = "6.4.0"
+num-complex = "0.4"
+rusqlite = "0.34.0"
+
+actix-web = "4"
+actix-multipart = "0.6"
+tokio = { version = "1", features = ["full"] }
+futures-util = "0.3.31"
+actix-cors = "0.7"

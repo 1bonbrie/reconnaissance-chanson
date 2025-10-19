@@ -1,0 +1,23 @@
+# Rust
+/target
+Cargo.lock
+
+# Base de données locale
+*.db
+*.sqlite
+
+# Fichiers de données/test (ajustez selon vos besoins)
+/dossier_mp3
+
+# IDE/Éditeur
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
