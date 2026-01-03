@@ -14,16 +14,27 @@ pub async fn inserer_chanson(mut payload: Multipart) -> impl Responder {
     let chemin_fichier = "upload_inserer.mp3";
 
     while let Some(item) = payload.next().await {
-        let mut champ = item.unwrap();
+        let mut champ = match item {
+            Ok(c) => c,
+            Err(e) => return HttpResponse::BadRequest().body(format!("Erreur multipart: {}", e)),
+        };
         if nom_fichier_original.is_empty() {
             if let Some(filename) = champ.content_disposition().get_filename() {
                 nom_fichier_original = filename.to_string();
             }
         }
-        let mut fichier = File::create(chemin_fichier).unwrap();
+        let mut fichier = match File::create(chemin_fichier) {
+            Ok(f) => f,
+            Err(e) => return HttpResponse::InternalServerError().body(format!("Erreur création fichier: {}", e)),
+        };
         while let Some(chunk) = champ.next().await {
-            let data = chunk.unwrap();
-            fichier.write_all(&data).unwrap();
+            let data = match chunk {
+                Ok(d) => d,
+                Err(e) => return HttpResponse::BadRequest().body(format!("Erreur chunk: {}", e)),
+            };
+            if let Err(e) = fichier.write_all(&data) {
+                return HttpResponse::InternalServerError().body(format!("Erreur écriture: {}", e));
+            }
         }
     }
 
@@ -33,7 +44,7 @@ pub async fn inserer_chanson(mut payload: Multipart) -> impl Responder {
             let metadonnees11khz = sous_echantillonner(metadonnees);
             let spectrogramme = generer_spectrogramme(metadonnees11khz);
             let pics = trouver_pics(&spectrogramme, 5);
-            let empreintes = generer_empreintes(&pics);
+            let empreintes = generer_empreintes(&pics, 5, 200);
 
             let mut nom_pour_db = if nom_fichier_original.is_empty() {
                 "inconnu".to_string()
@@ -60,11 +71,22 @@ pub async fn inserer_chanson(mut payload: Multipart) -> impl Responder {
 pub async fn reconnaitre_chanson(mut payload: Multipart) -> impl Responder {
     let chemin_fichier = "upload_reconnaitre.mp3";
     while let Some(item) = payload.next().await {
-        let mut champ = item.unwrap();
-        let mut fichier = File::create(chemin_fichier).unwrap();
+        let mut champ = match item {
+            Ok(c) => c,
+            Err(e) => return HttpResponse::BadRequest().body(format!("Erreur multipart: {}", e)),
+        };
+        let mut fichier = match File::create(chemin_fichier) {
+            Ok(f) => f,
+            Err(e) => return HttpResponse::InternalServerError().body(format!("Erreur création fichier: {}", e)),
+        };
         while let Some(chunk) = champ.next().await {
-            let data = chunk.unwrap();
-            fichier.write_all(&data).unwrap();
+            let data = match chunk {
+                Ok(d) => d,
+                Err(e) => return HttpResponse::BadRequest().body(format!("Erreur chunk: {}", e)),
+            };
+            if let Err(e) = fichier.write_all(&data) {
+                return HttpResponse::InternalServerError().body(format!("Erreur écriture: {}", e));
+            }
         }
     }
     let mut connexion = db::initialiser_db("empreintes.db").unwrap();
@@ -73,7 +95,7 @@ pub async fn reconnaitre_chanson(mut payload: Multipart) -> impl Responder {
             let metadonnees11khz = sous_echantillonner(metadonnees);
             let spectrogramme = generer_spectrogramme(metadonnees11khz);
             let pics = trouver_pics(&spectrogramme, 5);
-            let empreintes = generer_empreintes(&pics);
+            let empreintes = generer_empreintes(&pics, 5, 200);
             let res = db::utiliser_db(&mut connexion, db::Commande::Reconnaitre, None, &empreintes);
             HttpResponse::Ok().body(res.unwrap_or_else(|e| format!("Erreur : {}", e)))
         }

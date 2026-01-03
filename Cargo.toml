@@ -3,11 +3,15 @@ name = "clone"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "clone"
+path = "src/lib.rs"
+
 [dependencies]
 minimp3 = { git = "https://github.com/Kither12/minimp3-rs" }
 rustfft = "6.4.0"
 num-complex = "0.4"
-rusqlite = "0.34.0"
+rusqlite = { version = "0.34.0", features = ["bundled"] }
 
 actix-web = "4"
 actix-multipart = "0.6"

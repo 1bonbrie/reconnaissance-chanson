@@ -6,11 +6,20 @@ pub enum Commande {
     Reconnaitre,
 }
 
+pub fn hash_empreinte(freq_ancre: usize, freq_cible: usize, delta_temps: usize) -> i64 {
+    let fa = (freq_ancre as u64) & 0xFFFF;
+    let fc = (freq_cible as u64) & 0xFFFF;
+    let dt = (delta_temps as u64) & 0xFFFF;
+
+    let hash = (fa << 32) | (fc << 16) | dt;
+    hash as i64
+}
+
 pub fn utiliser_db(
     connexion: &mut Connection,
     commande: Commande,
     id_chanson: Option<&str>,
-    empreintes: &[(usize, usize, usize, usize)],
+    empreintes: &[(usize, usize, usize)],
 ) -> Result<String> {
     match commande {
         Commande::Inserer => {
@@ -18,7 +27,9 @@ pub fn utiliser_db(
                 inserer_empreintes(connexion, id, empreintes)?;
                 Ok("Empreintes insérées avec succès".to_string())
             } else {
-                Err(rusqlite::Error::InvalidParameterName("id_chanson est requis pour Inserer".to_string()))
+                Err(rusqlite::Error::InvalidParameterName(
+                    "id_chanson est requis pour Inserer".to_string(),
+                ))
             }
         }
         Commande::Reconnaitre => {
@@ -34,15 +45,13 @@ pub fn initialiser_db(chemin: &str) -> Result<Connection> {
         "CREATE TABLE IF NOT EXISTS empreintes (
             id INTEGER PRIMARY KEY,
             id_chanson TEXT,
-            freq_ancre INTEGER,
-            freq_cible INTEGER,
-            delta_temps INTEGER,
-            temps_ancre INTEGER
+            hash INTEGER
         )",
         [],
     )?;
     connexion.execute(
-        "CREATE INDEX IF NOT EXISTS idx_empreintes ON empreintes(freq_ancre, freq_cible, delta_temps)",
+        "CREATE INDEX IF NOT EXISTS idx_empreintes_hash
+         ON empreintes(hash)",
         [],
     )?;
     Ok(connexion)
@@ -51,46 +60,61 @@ pub fn initialiser_db(chemin: &str) -> Result<Connection> {
 pub fn inserer_empreintes(
     connexion: &mut Connection,
     id_chanson: &str,
-    empreintes: &[(usize, usize, usize, usize)],
+    empreintes: &[(usize, usize, usize)],
 ) -> Result<()> {
     let transaction = connexion.transaction()?;
-    for (freq_ancre, freq_cible, delta_temps, temps_ancre) in empreintes {
-        transaction.execute(
-            "INSERT INTO empreintes (id_chanson, freq_ancre, freq_cible, delta_temps, temps_ancre) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![id_chanson, *freq_ancre as i64, *freq_cible as i64, *delta_temps as i64, *temps_ancre as i64],
+
+    {
+        let mut stmt = transaction.prepare(
+            "INSERT INTO empreintes (id_chanson, hash)
+             VALUES (?1, ?2)",
         )?;
+
+        for (freq_ancre, freq_cible, delta_temps) in empreintes {
+            let hash = hash_empreinte(*freq_ancre, *freq_cible, *delta_temps);
+
+            stmt.execute(params![
+                id_chanson,
+                hash
+            ])?;
+        }
     }
+
     transaction.commit()?;
     Ok(())
 }
 
-
 pub fn trouver_correspondances(
     connexion: &Connection,
-    empreintes_recherche: &[(usize, usize, usize, usize)],
+    empreintes_recherche: &[(usize, usize, usize)],
 ) -> Result<String> {
-    let mut correspondances = HashMap::new();
-    const MIN_CORRESPONDANCES: usize = 800;
+    let mut correspondances: HashMap<String, usize> = HashMap::new();
+    const MIN_CORRESPONDANCES: usize = 5;
 
-    for &(freq_ancre, freq_cible, delta_temps, temps_ancre_recherche) in empreintes_recherche {
-        let mut requete = connexion.prepare(
-            "SELECT id_chanson, temps_ancre FROM empreintes WHERE freq_ancre = ?1 AND freq_cible = ?2 AND delta_temps = ?3"
-        )?;
-        let lignes = requete.query_map(params![freq_ancre as i64, freq_cible as i64, delta_temps as i64], |ligne| {
-            Ok((ligne.get::<_, String>(0)?, ligne.get::<_, i64>(1)?))
+    let mut requete = connexion.prepare(
+        "SELECT id_chanson FROM empreintes WHERE hash = ?1",
+    )?;
+
+    for &(freq_ancre, freq_cible, delta_temps) in empreintes_recherche {
+        let h = hash_empreinte(freq_ancre, freq_cible, delta_temps);
+
+        let lignes = requete.query_map(params![h], |ligne| {
+            ligne.get::<_, String>(0)
         })?;
 
         for ligne in lignes {
-            let (id_chanson, temps_ancre_base) = ligne?;
-            let decalage = temps_ancre_base - temps_ancre_recherche as i64;
-            *correspondances.entry((id_chanson, decalage)).or_insert(0) += 1;
+            let id_chanson = ligne?;
+            *correspondances.entry(id_chanson).or_insert(0) += 1;
         }
     }
 
-    if let Some(((nom_chanson, _), &nb_correspondances)) = correspondances.iter().max_by_key(|entry| entry.1) {
+    if let Some((nom_chanson, &nb_correspondances)) =
+        correspondances.iter().max_by_key(|entry| entry.1)
+    {
         if nb_correspondances >= MIN_CORRESPONDANCES {
-            return Ok(nom_chanson.clone());
+            return Ok(format!("{} ({} correspondances)", nom_chanson, nb_correspondances));
         }
     }
+
     Ok("Aucune correspondance trouvée".to_string())
 }
